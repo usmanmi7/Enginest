@@ -64,12 +64,11 @@ export function ClosingCTA() {
               Get Started Free
               <ArrowRight className="size-4 ml-1 transition-transform group-hover:translate-x-1" />
             </Button>
-            <Button
-              variant="outline"
-              className="h-12 px-8 border-white/20 text-white hover:bg-white/10 hover:text-white text-sm font-medium rounded-lg"
-            >
-              Schedule a Demo
-            </Button>
+            <button className="group relative h-12 px-8 rounded-lg text-sm font-semibold text-white border border-white/20 transition-all duration-300 hover:border-[#3B82F6]/50 hover:shadow-lg hover:shadow-[#3B82F6]/20 glass-button">
+              <span className="relative z-10 flex items-center gap-2">
+                Schedule a Demo
+              </span>
+            </button>
           </div>
         </motion.div>
       </div>
