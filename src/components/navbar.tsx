@@ -25,7 +25,7 @@ import {
 
 const NAV_LINKS = [
   { label: "Resources", href: "#" },
-  { label: "Solve Them", href: "#" },
+  { label: "Solve Them", href: "/solve-them" },
   { label: "AI Assistant", href: "#" },
   { label: "About", href: "#" },
 ] as const;
