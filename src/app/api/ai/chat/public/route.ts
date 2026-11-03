@@ -271,8 +271,7 @@ export async function POST(req: NextRequest) {
       {
         error: "Failed to generate response",
         details: errorMessage,
-        response:
-          "I'm having trouble connecting right now. Please try again in a moment.",
+        response: `I couldn't reach the AI service. Error: ${errorMessage}`,
       },
       { status: 500 }
     )

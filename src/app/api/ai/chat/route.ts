@@ -234,12 +234,14 @@ export async function POST(req: NextRequest) {
     console.error("AI Chat error:", error)
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error"
+    // Surface the actual error in the response so the user can see what
+    // went wrong (instead of just a generic "having trouble" message).
+    // This makes debugging vastly easier — paste the visible text to me.
     return NextResponse.json(
       {
         error: "Failed to generate response",
         details: errorMessage,
-        response:
-          "I'm having trouble connecting right now. Please try again in a moment.",
+        response: `I couldn't reach the AI service. Error: ${errorMessage}`,
       },
       { status: 500 }
     )
