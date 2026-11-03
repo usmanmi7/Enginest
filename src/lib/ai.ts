@@ -100,12 +100,14 @@ function getGemini(): GoogleGenerativeAI | null {
   return geminiInstance
 }
 
-// Models to try in order, each has separate quota limits
+// Models to try in order, each has separate quota limits.
+// As of Nov 2025, Google deprecated gemini-2.0-flash in favor of gemini-3.8-flash.
+// We try the newer 3.x models first, then fall back to 2.5 for safety.
 const GEMINI_MODELS = [
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
+  process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash",
 ]
 
 function isRateLimitError(error: unknown): boolean {
@@ -116,7 +118,10 @@ function isRateLimitError(error: unknown): boolean {
       msg.includes("quota") ||
       msg.includes("rate limit") ||
       msg.includes("too many requests") ||
-      msg.includes("resource exhausted")
+      msg.includes("resource exhausted") ||
+      // 404 on a deprecated model in some regions — try the next model
+      msg.includes("is no longer available") ||
+      msg.includes("not found")
     )
   }
   return false

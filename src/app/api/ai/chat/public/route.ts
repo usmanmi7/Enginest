@@ -48,14 +48,15 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 
 const systemPrompt = AI_SYSTEM_PROMPT
 
-// Default Gemini model. Override with GEMINI_MODEL env var.
-const DEFAULT_MODEL = "gemini-2.0-flash"
+// Default Gemini model. As of Nov 2025, Google deprecated gemini-2.0-flash
+// in favor of gemini-3.8-flash. Override with GEMINI_MODEL env var.
+const DEFAULT_MODEL = "gemini-3.8-flash"
 
 const GEMINI_MODELS = [
   process.env.GEMINI_MODEL || DEFAULT_MODEL,
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash",
 ].filter((v, i, arr) => arr.indexOf(v) === i)
 
 let geminiInstance: GoogleGenerativeAI | null = null
@@ -77,7 +78,9 @@ function isRateLimitError(error: unknown): boolean {
       msg.includes("quota") ||
       msg.includes("rate limit") ||
       msg.includes("too many requests") ||
-      msg.includes("resource exhausted")
+      msg.includes("resource exhausted") ||
+      msg.includes("is no longer available") ||
+      msg.includes("not found")
     )
   }
   return false
@@ -287,6 +290,8 @@ export async function GET() {
     .replace(/-/g, " ")
     .replace(/\b(flash|pro|lite|mini)\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1))
     .replace(/\b(\d+\.\d+)\b/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
 
   return NextResponse.json({
     online: configured,

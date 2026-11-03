@@ -17,17 +17,18 @@ import {
 export const runtime = "nodejs"
 export const maxDuration = 60 // Gemini can take 5-15s on cold start
 
-// Default Gemini model. Override with GEMINI_MODEL env var if you want to
-// switch to e.g. "gemini-2.5-flash", "gemini-2.0-flash-lite", etc.
-const DEFAULT_MODEL = "gemini-2.0-flash"
+// Default Gemini model. Override with GEMINI_MODEL env var.
+// As of Nov 2025, Google deprecated gemini-2.0-flash in favor of gemini-3.8-flash.
+const DEFAULT_MODEL = "gemini-3.8-flash"
 
-// Models to try in order, each has separate quota limits.
-// If the primary hits a 429 (rate limit / quota), we fall back automatically.
+// Models to try in order. Each has separate quota limits — if the primary
+// hits a 429 (rate limit / quota) or 404 (deprecated in some regions), we
+// fall back to the next one automatically.
 const GEMINI_MODELS = [
   process.env.GEMINI_MODEL || DEFAULT_MODEL,
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash",
 ].filter((v, i, arr) => arr.indexOf(v) === i) // dedupe
 
 let geminiInstance: GoogleGenerativeAI | null = null
@@ -49,7 +50,10 @@ function isRateLimitError(error: unknown): boolean {
       msg.includes("quota") ||
       msg.includes("rate limit") ||
       msg.includes("too many requests") ||
-      msg.includes("resource exhausted")
+      msg.includes("resource exhausted") ||
+      // 404 on a deprecated model in some regions — try the next model
+      msg.includes("is no longer available") ||
+      msg.includes("not found")
     )
   }
   return false
@@ -250,12 +254,14 @@ export async function GET() {
   const configured = !!process.env.GOOGLE_AI_API_KEY
   const model = GEMINI_MODELS[0]
 
-  // Pretty label: gemini-2.0-flash -> Gemini 2.0 Flash
+  // Pretty label: gemini-3.8-flash -> Gemini 3.8 Flash
   const label = model
     .replace(/^gemini/i, "Gemini")
     .replace(/-/g, " ")
     .replace(/\b(flash|pro|lite|mini)\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1))
     .replace(/\b(\d+\.\d+)\b/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
 
   return NextResponse.json({
     online: configured,
