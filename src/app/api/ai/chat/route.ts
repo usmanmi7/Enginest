@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { GoogleGenerativeAI } from "@google/generative-ai"
 import {
   cleanText,
   parseStructuredResponseSafe,
@@ -14,16 +15,126 @@ import {
 } from "@/lib/ai-context"
 
 export const runtime = "nodejs"
-export const maxDuration = 60 // NVIDIA inference can take 10-30s on cold start
+export const maxDuration = 60 // Gemini can take 5-15s on cold start
 
-// Default model is GLM-5.2 (https://build.nvidia.com/z-ai/glm-5.2).
-// Override with NVIDIA_MODEL env var if you want to switch to e.g.
-// "meta/llama-3.1-70b-instruct" or "google/gemma-3-12b-it".
-const DEFAULT_MODEL = "z-ai/glm-5.2"
+// Default Gemini model. Override with GEMINI_MODEL env var if you want to
+// switch to e.g. "gemini-2.5-flash", "gemini-2.0-flash-lite", etc.
+const DEFAULT_MODEL = "gemini-2.0-flash"
+
+// Models to try in order, each has separate quota limits.
+// If the primary hits a 429 (rate limit / quota), we fall back automatically.
+const GEMINI_MODELS = [
+  process.env.GEMINI_MODEL || DEFAULT_MODEL,
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-8b",
+].filter((v, i, arr) => arr.indexOf(v) === i) // dedupe
+
+let geminiInstance: GoogleGenerativeAI | null = null
+
+function getGemini(): GoogleGenerativeAI | null {
+  const apiKey = process.env.GOOGLE_AI_API_KEY
+  if (!apiKey) return null
+  if (!geminiInstance) {
+    geminiInstance = new GoogleGenerativeAI(apiKey)
+  }
+  return geminiInstance
+}
+
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    return (
+      msg.includes("429") ||
+      msg.includes("quota") ||
+      msg.includes("rate limit") ||
+      msg.includes("too many requests") ||
+      msg.includes("resource exhausted")
+    )
+  }
+  return false
+}
+
+/**
+ * Convert OpenAI-style messages to Gemini's expected format and call the model.
+ * - "system" role -> systemInstruction (separate param)
+ * - "assistant" role -> "model" role
+ * - "user" role stays "user"
+ */
+async function geminiChatWithModel(
+  gemini: GoogleGenerativeAI,
+  modelName: string,
+  messages: Array<{ role: string; content: string }>,
+  systemPrompt?: string
+): Promise<string> {
+  const model = gemini.getGenerativeModel({
+    model: modelName,
+    systemInstruction: systemPrompt || undefined,
+  })
+
+  // Convert messages (skip system — it's passed as systemInstruction)
+  const history: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = []
+  let lastUserMessage = ""
+
+  for (const msg of messages) {
+    if (msg.role === "system") continue
+    if (msg.role === "user") {
+      lastUserMessage = msg.content
+      history.push({ role: "user", parts: [{ text: msg.content }] })
+    } else if (msg.role === "assistant") {
+      history.push({ role: "model", parts: [{ text: msg.content }] })
+    }
+  }
+
+  // Single message, use simple generateContent
+  if (history.length <= 1) {
+    const result = await model.generateContent(lastUserMessage)
+    return result.response.text()
+  }
+
+  // Multi-turn conversation, use chat
+  const chat = model.startChat({
+    history: history.slice(0, -1),
+  })
+
+  const result = await chat.sendMessage(lastUserMessage)
+  return result.response.text()
+}
+
+async function geminiChat(
+  messages: Array<{ role: string; content: string }>,
+  systemPrompt?: string
+): Promise<string> {
+  const gemini = getGemini()
+  if (!gemini) {
+    throw new Error(
+      "GOOGLE_AI_API_KEY is not set. Get a free key at https://aistudio.google.com/apikey and add it to your env vars."
+    )
+  }
+
+  let lastError: unknown = null
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      const response = await geminiChatWithModel(gemini, modelName, messages, systemPrompt)
+      console.log(`Gemini model ${modelName} succeeded`)
+      return response
+    } catch (error) {
+      lastError = error
+      if (isRateLimitError(error)) {
+        console.warn(`Gemini model ${modelName} hit rate limit, trying next model...`)
+        continue
+      }
+      throw error
+    }
+  }
+
+  throw lastError
+}
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth: protect your NVIDIA credits from anonymous abuse
+    // Auth: protect your Gemini quota from anonymous abuse
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -36,6 +147,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Message is required" },
         { status: 400 }
+      )
+    }
+
+    // Quick config check so we return a helpful message instead of a 500.
+    if (!process.env.GOOGLE_AI_API_KEY) {
+      return NextResponse.json(
+        {
+          error: "AI not configured",
+          details: "GOOGLE_AI_API_KEY env var is missing.",
+          response:
+            "The AI assistant isn't configured yet. Add a GOOGLE_AI_API_KEY (free at https://aistudio.google.com/apikey) in your .env file or Vercel env vars.",
+        },
+        { status: 503 }
       )
     }
 
@@ -59,51 +183,12 @@ export async function POST(req: NextRequest) {
       : []
 
     const messages: Array<{ role: string; content: string }> = [
-      { role: "system", content: systemPrompt },
       ...trimmedHistory,
     ]
 
     messages.push({ role: "user", content: message })
 
-    const response = await fetch(
-      "https://integrate.api.nvidia.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: process.env.NVIDIA_MODEL || DEFAULT_MODEL,
-          messages,
-          max_tokens: 700,
-          temperature: 0.85,
-          stream: false,
-        }),
-      }
-    )
-
-    if (!response.ok) {
-      const errText = await response.text()
-      console.error(
-        `NVIDIA API error ${response.status}:`,
-        errText.slice(0, 500)
-      )
-      return NextResponse.json(
-        {
-          error: "AI service error",
-          details: `NVIDIA returned ${response.status}`,
-          response:
-            "I'm having trouble connecting right now. Please try again in a moment.",
-        },
-        { status: 500 }
-      )
-    }
-
-    const data = await response.json()
-    const raw =
-      data.choices?.[0]?.message?.content ||
-      "I'm sorry, I couldn't generate a response. Please try again."
+    const raw = await geminiChat(messages, systemPrompt)
 
     // Parse the structured JSON response with a regex-based fallback so we
     // never dump raw JSON at the user when the model emits slightly
@@ -127,9 +212,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      // Always present: plain text version (for history, errors, fallback UI)
       response: plainResponse,
-      // Structured fields: only present when JSON parse succeeded
       responseType: structured.responseType,
       heading: structured.heading,
       description: structured.description,
@@ -140,8 +223,8 @@ export async function POST(req: NextRequest) {
       optionA: structured.optionA,
       optionB: structured.optionB,
       question: structured.question,
-      model: process.env.NVIDIA_MODEL || DEFAULT_MODEL,
-      provider: "nvidia",
+      model: GEMINI_MODELS[0],
+      provider: "gemini",
     })
   } catch (error: unknown) {
     console.error("AI Chat error:", error)
@@ -164,25 +247,24 @@ export async function POST(req: NextRequest) {
  * Used by the dashboard search bar to display the active model badge.
  */
 export async function GET() {
-  const configured = !!process.env.NVIDIA_API_KEY
-  const model = process.env.NVIDIA_MODEL || DEFAULT_MODEL
-  const withoutOrg = model.split("/").pop() || model
-  // Pretty label: z-ai/glm-5.2 -> GLM-5.2, meta/llama-3.1-70b-instruct -> Llama 3.1 70B instruct
-  const label = withoutOrg
-    .replace(/^glm/i, "GLM")
-    .replace(/^llama/i, "Llama")
-    .replace(/^gemma/i, "Gemma")
+  const configured = !!process.env.GOOGLE_AI_API_KEY
+  const model = GEMINI_MODELS[0]
+
+  // Pretty label: gemini-2.0-flash -> Gemini 2.0 Flash
+  const label = model
+    .replace(/^gemini/i, "Gemini")
     .replace(/-/g, " ")
-    .replace(/\b(\d+b)\b/gi, (m) => m.toUpperCase())
+    .replace(/\b(flash|pro|lite|mini)\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1))
+    .replace(/\b(\d+\.\d+)\b/g, "$1")
 
   return NextResponse.json({
     online: configured,
-    provider: configured ? "nvidia" : "none",
+    provider: configured ? "gemini" : "none",
     model,
     label,
-    nvidiaConfigured: configured,
+    geminiConfigured: configured,
     hint: configured
       ? undefined
-      : "Set NVIDIA_API_KEY in Vercel env vars to enable the AI. Get a free key at https://build.nvidia.com/z-ai/glm-5.2",
+      : "Set GOOGLE_AI_API_KEY in Vercel env vars to enable the AI. Get a free key at https://aistudio.google.com/apikey",
   })
 }
