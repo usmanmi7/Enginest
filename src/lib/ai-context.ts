@@ -245,7 +245,7 @@ ${userBlock}`
 /**
  * Summarize older messages when a chat grows too long.
  *
- * NVIDIA GLM-5.2 has an ~128K context window but we cap history at 10
+ * Google Gemini has a large context window but we cap history at 10
  * messages for token cost. When a chat exceeds MESSAGE_CAP, the oldest
  * messages (everything before the most recent N) get squashed into a
  * single system message that summarizes what was discussed.

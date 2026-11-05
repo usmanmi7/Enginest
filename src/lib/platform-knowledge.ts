@@ -59,7 +59,7 @@ The AI Assistant is a strategic co-pilot for engineers and innovators. It follow
 
 The assistant skips the interview for purely factual, conceptual, comparison, or case-study questions. It also skips any question whose answer is already in the user's session context.
 
-The assistant returns structured JSON responses with one of 5 response types: paragraph, steps, comparison, quick, clarify. It is powered by GLM-5.2 from NVIDIA Build.
+The assistant returns structured JSON responses with one of 5 response types: paragraph, steps, comparison, quick, clarify. It is powered by Google Gemini.
 
 OTHER PLATFORM FEATURES (legacy, still available)
 - Resources library with free and premium content (/resources, /dashboard/resources).
