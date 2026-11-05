@@ -90,7 +90,7 @@ export default function AIAssistantPage() {
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [input, setInput] = React.useState("")
   const [loading, setLoading] = React.useState(false)
-  const [modelLabel, setModelLabel] = React.useState("Gemini 3.8 Flash")
+  const [modelLabel, setModelLabel] = React.useState("Gemini 2.5 Flash")
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {

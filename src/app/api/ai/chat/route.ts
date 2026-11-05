@@ -18,17 +18,20 @@ export const runtime = "nodejs"
 export const maxDuration = 60 // Gemini can take 5-15s on cold start
 
 // Default Gemini model. Override with GEMINI_MODEL env var.
-// As of Nov 2025, Google deprecated gemini-2.0-flash in favor of gemini-3.8-flash.
-const DEFAULT_MODEL = "gemini-3.8-flash"
+// We default to gemini-2.5-flash because it's the most reliable / least
+// rate-limited. Newer models (3.8-flash) frequently return 503 "high demand"
+// errors during peak hours. If 2.5 also fails, we fall back to the newer
+// 3.x models, then 1.5 as a last resort.
+const DEFAULT_MODEL = "gemini-2.5-flash"
 
 // Models to try in order. Each has separate quota limits — if the primary
-// hits a 429 (rate limit / quota) or 404 (deprecated in some regions), we
-// fall back to the next one automatically.
+// hits a 429 / 503 / 404, we fall back to the next one automatically.
 const GEMINI_MODELS = [
   process.env.GEMINI_MODEL || DEFAULT_MODEL,
-  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
   "gemini-3.5-flash",
-  "gemini-2.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-1.5-flash",
 ].filter((v, i, arr) => arr.indexOf(v) === i) // dedupe
 
 let geminiInstance: GoogleGenerativeAI | null = null
@@ -46,14 +49,29 @@ function isRateLimitError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     return (
+      // Quota / rate limit (HTTP 429 family)
       msg.includes("429") ||
       msg.includes("quota") ||
       msg.includes("rate limit") ||
       msg.includes("too many requests") ||
       msg.includes("resource exhausted") ||
-      // 404 on a deprecated model in some regions — try the next model
+      // Model deprecated / not found (HTTP 404 family) — try next model
       msg.includes("is no longer available") ||
-      msg.includes("not found")
+      msg.includes("not found") ||
+      // Model overloaded / temporarily unavailable (HTTP 503 family)
+      // Google returns this when a specific model is under high demand.
+      // Other models in the fallback chain may still work fine.
+      msg.includes("503") ||
+      msg.includes("service unavailable") ||
+      msg.includes("high demand") ||
+      msg.includes("currently experiencing") ||
+      msg.includes("try again later") ||
+      msg.includes("overloaded") ||
+      // Generic transient errors worth a retry on another model
+      msg.includes("500") ||
+      msg.includes("internal error") ||
+      msg.includes("temporarily unavailable") ||
+      msg.includes("try again")
     )
   }
   return false

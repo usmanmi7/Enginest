@@ -474,7 +474,7 @@ export default function PublicAIAssistantPage() {
 
   const resetChat = () => startNewChat()
 
-  const modelLabel = status?.label || "Gemini 3.8 Flash"
+  const modelLabel = status?.label || "Gemini 2.5 Flash"
   const isOnline = status?.online ?? false
 
   // Sidebar props shared by desktop + mobile

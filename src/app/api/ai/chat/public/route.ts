@@ -48,15 +48,17 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 
 const systemPrompt = AI_SYSTEM_PROMPT
 
-// Default Gemini model. As of Nov 2025, Google deprecated gemini-2.0-flash
-// in favor of gemini-3.8-flash. Override with GEMINI_MODEL env var.
-const DEFAULT_MODEL = "gemini-3.8-flash"
+// Default Gemini model. We default to gemini-2.5-flash because the newer
+// gemini-3.8-flash frequently returns 503 "high demand" errors during peak
+// hours. Override with GEMINI_MODEL env var.
+const DEFAULT_MODEL = "gemini-2.5-flash"
 
 const GEMINI_MODELS = [
   process.env.GEMINI_MODEL || DEFAULT_MODEL,
-  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
   "gemini-3.5-flash",
-  "gemini-2.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-1.5-flash",
 ].filter((v, i, arr) => arr.indexOf(v) === i)
 
 let geminiInstance: GoogleGenerativeAI | null = null
@@ -74,13 +76,27 @@ function isRateLimitError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     return (
+      // Quota / rate limit (HTTP 429 family)
       msg.includes("429") ||
       msg.includes("quota") ||
       msg.includes("rate limit") ||
       msg.includes("too many requests") ||
       msg.includes("resource exhausted") ||
+      // Model deprecated / not found (HTTP 404 family) — try next model
       msg.includes("is no longer available") ||
-      msg.includes("not found")
+      msg.includes("not found") ||
+      // Model overloaded / temporarily unavailable (HTTP 503 family)
+      msg.includes("503") ||
+      msg.includes("service unavailable") ||
+      msg.includes("high demand") ||
+      msg.includes("currently experiencing") ||
+      msg.includes("try again later") ||
+      msg.includes("overloaded") ||
+      // Generic transient errors worth a retry on another model
+      msg.includes("500") ||
+      msg.includes("internal error") ||
+      msg.includes("temporarily unavailable") ||
+      msg.includes("try again")
     )
   }
   return false
