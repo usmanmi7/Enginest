@@ -3,23 +3,25 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 
 /**
  * Hero
  * ----
- * Looping background video hero. The video plays continuously on a sticky
- * full-viewport container. All hero content (badge, headline, CTAs, trust
- * line) sits on top with motion-controlled entrance animations.
+ * Full-viewport hero with a background photo and a 60% navy overlay so white
+ * text stays legible. All hero content (badge, headline, CTAs, trust line)
+ * sits on top with motion-controlled entrance animations.
  *
- * Notes:
- *  - Video uses `autoPlay loop muted playsInline` — required for autoplay
- *    to work in all browsers (Chrome, Safari, iOS, Firefox).
- *  - `preload="auto"` so the video starts playing ASAP.
- *  - A `poster` (first frame) is set on the <video> so there's no flash
- *    of empty navy before the video starts.
- *  - Reduced-motion users see the poster image only (video doesn't play).
- *  - Video opacity kept at 0.55 so white hero text remains legible.
+ * Background image: /public/images/pexels-mikhail-nilov-8297487.jpg
+ *  - Photo by Mikhail Nilov (Pexels)
+ *  - Conveys "real people solving real problems" — fits the platform's mission
+ *
+ * Overlay stack (bottom -> top):
+ *  1. <Image> background (object-cover, fills section)
+ *  2. Solid navy overlay at 60% opacity — primary legibility layer
+ *  3. Radial vignette — focuses attention on center content
+ *  4. Bottom fade — smooth transition into the next section
  */
 
 export default function Hero() {
@@ -27,22 +29,19 @@ export default function Hero() {
 
   return (
     <section className="relative h-screen min-h-[600px] bg-[#0F1B3D] -mt-16 sm:-mt-20 overflow-hidden">
-      {/* Background video — loops continuously, autoplay-muted (browser req) */}
-      <video
-        className="absolute inset-0 w-full h-full object-cover"
-        style={{ opacity: 0.55 }}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
+      {/* Background image — Photo by Mikhail Nilov (Pexels) */}
+      <Image
+        src="/images/pexels-mikhail-nilov-8297487.jpg"
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover"
         aria-hidden="true"
-      >
-        <source src="/videos/hero-bg.mp4" type="video/mp4" />
-      </video>
+      />
 
-      {/* Dark overlay tint to keep text legible over the video */}
-      <div className="absolute inset-0 bg-[#0F1B3D]/40 z-[1]" />
+      {/* 60% navy overlay — keeps white hero text highly legible over the image */}
+      <div className="absolute inset-0 bg-[#0F1B3D]/60 z-[1]" />
 
       {/* Subtle vignette to focus attention on center content */}
       <div
